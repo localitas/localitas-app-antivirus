@@ -5,6 +5,7 @@ go 1.26.3
 require (
 	github.com/grandcat/zeroconf v1.0.0
 	github.com/localitas/localitas-go v0.0.0-00010101000000-000000000000
+	github.com/urfave/cli/v3 v3.9.1
 )
 
 require (

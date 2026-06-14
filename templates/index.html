@@ -1,0 +1,205 @@
+{{define "index.html"}}
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Antivirus — Localitas</title>
+    <base href="{{.BasePath}}">
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2/dist/tailwind.min.css" rel="stylesheet">
+    <style>
+        :root { --color-bg-base: #fcfbfe; --color-bg-elevated: #f0eef7; --color-text-primary: #1a1625; --color-text-secondary: #4a3f5c; --color-glass-base: rgba(255,255,255,0.75); --color-glass-border: rgba(139,117,169,0.35); --color-accent: #7d6b96; --shadow: 0 4px 16px rgba(139,117,169,0.08); }
+        [data-theme="dark"] { --color-bg-base: #120f1a; --color-bg-elevated: #221b2e; --color-text-primary: #e8e4f0; --color-text-secondary: #b3a8c8; --color-glass-base: rgba(37,31,53,0.85); --color-glass-border: rgba(184,164,212,0.15); --color-accent: #c5b3e0; --shadow: 0 6px 24px rgba(0,0,0,0.4); }
+        html, body { margin:0; padding:0; height:100%; overflow:hidden; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: var(--color-bg-base); color: var(--color-text-primary); }
+        .bg { position:fixed; inset:0; background: radial-gradient(circle at 10% 20%, var(--color-bg-elevated), var(--color-bg-base) 90%); z-index:-1; }
+        .glass { background: var(--color-glass-base); border: 1px solid var(--color-glass-border); }
+        .btn { padding:0.375rem 0.75rem; border-radius:0.5rem; border:1px solid var(--color-glass-border); background:var(--color-glass-base); color:var(--color-text-primary); cursor:pointer; font-size:0.8125rem; display:flex; align-items:center; gap:0.25rem; }
+        .btn:hover { border-color:var(--color-accent); }
+        .btn-primary { background:var(--color-accent); color:var(--color-bg-elevated); border-color:var(--color-accent); }
+        .container { max-width:800px; margin:0 auto; padding:2rem; height:100%; overflow-y:auto; }
+        .header { display:flex; align-items:center; justify-content:space-between; margin-bottom:1.5rem; }
+        .header h1 { font-size:1.25rem; font-weight:600; display:flex; align-items:center; gap:0.5rem; }
+        .stat-grid { display:grid; grid-template-columns:repeat(3, 1fr); gap:1rem; margin-bottom:1.5rem; }
+        .stat-card { padding:1rem; border-radius:0.75rem; text-align:center; }
+        .stat-value { font-size:1.5rem; font-weight:700; }
+        .stat-label { font-size:0.75rem; color:var(--color-text-secondary); margin-top:0.25rem; }
+        .upload-zone { border:2px dashed var(--color-glass-border); border-radius:0.75rem; padding:2rem; text-align:center; cursor:pointer; transition:border-color 0.2s; margin-bottom:1.5rem; }
+        .upload-zone:hover, .upload-zone.dragover { border-color:var(--color-accent); background:rgba(142,122,168,0.05); }
+        .scan-item { display:flex; align-items:center; gap:0.75rem; padding:0.75rem; border-bottom:1px solid var(--color-glass-border); font-size:0.8125rem; }
+        .verdict-clean { color:#10b981; }
+        .verdict-infected { color:#ef4444; }
+        .status-dot { width:8px; height:8px; border-radius:50%; display:inline-block; }
+        .status-dot.running { background:#10b981; }
+        .status-dot.stopped { background:#ef4444; }
+    </style>
+</head>
+<body>
+    <div class="bg"></div>
+    <div class="container">
+        <div class="header">
+            <h1><i data-lucide="shield-check" style="width:24px;height:24px;"></i> Antivirus</h1>
+            <div style="display:flex; gap:0.5rem; align-items:center;">
+                <span id="clamd-status"></span>
+                <a href="javascript:void(0)" onclick="showDocs()" class="btn" style="text-decoration:none;cursor:pointer;"><i data-lucide="book-open" style="width:14px;height:14px;display:inline;"></i> Docs</a>
+                <button class="btn" onclick="loadStatus()"><i data-lucide="refresh-cw" style="width:14px;height:14px;display:inline;"></i> Refresh</button>
+            </div>
+        </div>
+
+        <div class="stat-grid">
+            <div class="stat-card glass">
+                <div class="stat-value" id="stat-total">0</div>
+                <div class="stat-label">Total Scans</div>
+            </div>
+            <div class="stat-card glass">
+                <div class="stat-value verdict-clean" id="stat-clean">0</div>
+                <div class="stat-label">Clean Files</div>
+            </div>
+            <div class="stat-card glass">
+                <div class="stat-value verdict-infected" id="stat-threats">0</div>
+                <div class="stat-label">Threats Found</div>
+            </div>
+        </div>
+
+        <div class="upload-zone glass" id="upload-zone" onclick="document.getElementById('file-input').click()">
+            <i data-lucide="upload" style="width:32px;height:32px;display:block;margin:0 auto 0.75rem;color:var(--color-accent);"></i>
+            <p style="font-size:0.875rem; font-weight:500;">Drop files here or click to upload</p>
+            <p style="font-size:0.75rem; color:var(--color-text-secondary);">Files are scanned with ClamAV before being stored</p>
+            <input type="file" id="file-input" style="display:none;" multiple onchange="scanFiles(this.files)">
+        </div>
+
+        <div id="scan-progress" style="display:none; margin-bottom:1rem; padding:0.75rem; border-radius:0.5rem;" class="glass">
+            <div style="display:flex; align-items:center; gap:0.5rem;">
+                <i data-lucide="loader" style="width:16px;height:16px;display:inline;animation:spin 1s linear infinite;"></i>
+                <span id="scan-progress-text" style="font-size:0.8125rem;">Scanning...</span>
+            </div>
+        </div>
+
+        <div style="margin-bottom:0.75rem; display:flex; align-items:center; justify-content:space-between;">
+            <h2 style="font-size:0.875rem; font-weight:600;">Scan History</h2>
+        </div>
+        <div id="history-list" class="glass" style="border-radius:0.75rem; overflow:hidden;"></div>
+    </div>
+
+    <script>
+        (function() {
+            var html = document.documentElement;
+            html.setAttribute('data-theme', localStorage.getItem('theme') || (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'));
+            window.addEventListener('message', function(e) { if (e.data && e.data.type === 'theme-change') html.setAttribute('data-theme', e.data.theme); });
+        })();
+
+        document.addEventListener('DOMContentLoaded', function() {
+            lucide.createIcons();
+            if (new URLSearchParams(window.location.search).get('docs') === 'true') { showDocs(); return; }
+            loadStatus();
+            loadHistory();
+            initDragDrop();
+        });
+
+        function showDocs() {
+            document.querySelector('.container').innerHTML = '<div style="padding:1rem;color:var(--color-text-secondary);">Loading documentation...</div>';
+            fetch('/apps/antivirus/help?format=html')
+            .then(function(r) { return r.text(); })
+            .then(function(html) {
+                document.querySelector('.container').innerHTML = '<div style="display:flex;justify-content:center;height:100%;">' + html + '</div>';
+                lucide.createIcons();
+            });
+        }
+
+        function helpShowSwagger() {
+            var w = document.getElementById('help-wrapper');
+            if (!w) return;
+            var swaggerUrl = w.dataset.swaggerUrl;
+            w.innerHTML = '<div style="display:flex;flex-direction:column;flex:1;min-height:0;">'
+                + '<div style="padding:0.5rem 1rem;border-bottom:1px solid var(--color-glass-border);display:flex;align-items:center;gap:0.75rem;">'
+                + '<a onclick="showDocs()" style="color:var(--color-accent);cursor:pointer;font-size:0.8125rem;text-decoration:none;">\u2190 Back to docs</a>'
+                + '<span style="font-size:0.8125rem;font-weight:500;color:var(--color-text-primary);">API Documentation</span></div>'
+                + '<iframe src="' + swaggerUrl + '" style="flex:1;border:none;width:100%;"></iframe></div>';
+        }
+
+        function initDragDrop() {
+            var zone = document.getElementById('upload-zone');
+            zone.addEventListener('dragover', function(e) { e.preventDefault(); zone.classList.add('dragover'); });
+            zone.addEventListener('dragleave', function() { zone.classList.remove('dragover'); });
+            zone.addEventListener('drop', function(e) {
+                e.preventDefault();
+                zone.classList.remove('dragover');
+                if (e.dataTransfer.files.length) scanFiles(e.dataTransfer.files);
+            });
+        }
+
+        async function loadStatus() {
+            try {
+                var resp = await fetch('api/status');
+                var status = await resp.json();
+                var dot = status.running ? '<span class="status-dot running"></span>' : '<span class="status-dot stopped"></span>';
+                var label = status.running ? 'ClamAV running' : 'ClamAV stopped';
+                document.getElementById('clamd-status').innerHTML = dot + ' <span style="font-size:0.75rem;color:var(--color-text-secondary);">' + label + '</span>';
+                document.getElementById('stat-total').textContent = status.total_scans;
+                document.getElementById('stat-clean').textContent = status.clean_files;
+                document.getElementById('stat-threats').textContent = status.threats_found;
+            } catch(e) {}
+        }
+
+        async function loadHistory() {
+            try {
+                var resp = await fetch('api/history?limit=50');
+                var results = await resp.json();
+                var list = document.getElementById('history-list');
+                if (!results || !results.length) {
+                    list.innerHTML = '<div style="padding:2rem;text-align:center;color:var(--color-text-secondary);font-size:0.8125rem;">No scans yet. Upload a file to get started.</div>';
+                    return;
+                }
+                list.innerHTML = results.map(function(r) {
+                    var icon = r.verdict === 'clean' ? 'check-circle' : 'alert-triangle';
+                    var cls = r.verdict === 'clean' ? 'verdict-clean' : 'verdict-infected';
+                    var threat = r.threat_name ? ' — ' + esc(r.threat_name) : '';
+                    var size = r.file_size > 1048576 ? (r.file_size/1048576).toFixed(1) + ' MB' : (r.file_size/1024).toFixed(0) + ' KB';
+                    var date = new Date(r.scanned_at).toLocaleString();
+                    return '<div class="scan-item">' +
+                        '<i data-lucide="' + icon + '" class="' + cls + '" style="width:18px;height:18px;flex-shrink:0;"></i>' +
+                        '<div style="flex:1;min-width:0;">' +
+                        '<div style="font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' + esc(r.filename) + '</div>' +
+                        '<div style="font-size:0.6875rem;color:var(--color-text-secondary);">' + size + ' — ' + r.duration_ms + 'ms' + threat + '</div></div>' +
+                        '<div style="font-size:0.6875rem;color:var(--color-text-secondary);white-space:nowrap;">' + date + '</div></div>';
+                }).join('');
+                lucide.createIcons();
+            } catch(e) {}
+        }
+
+        async function scanFiles(fileList) {
+            var progress = document.getElementById('scan-progress');
+            var progressText = document.getElementById('scan-progress-text');
+            progress.style.display = '';
+
+            for (var i = 0; i < fileList.length; i++) {
+                var f = fileList[i];
+                progressText.textContent = 'Scanning ' + f.name + ' (' + (i+1) + '/' + fileList.length + ')...';
+                try {
+                    var formData = new FormData();
+                    formData.append('file', f);
+                    var resp = await fetch('api/scan', {method:'POST', body: formData});
+                    var result = await resp.json();
+                    if (result.error) {
+                        progressText.textContent = 'Error: ' + result.error;
+                        await new Promise(function(r) { setTimeout(r, 2000); });
+                    }
+                } catch(e) {
+                    progressText.textContent = 'Failed: ' + e.message;
+                    await new Promise(function(r) { setTimeout(r, 2000); });
+                }
+            }
+
+            progress.style.display = 'none';
+            document.getElementById('file-input').value = '';
+            loadHistory();
+            loadStatus();
+        }
+
+        function esc(s) { if (!s) return ''; var d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
+    </script>
+    <style>@keyframes spin { from{transform:rotate(0deg)} to{transform:rotate(360deg)} }</style>
+</body>
+</html>
+{{end}}

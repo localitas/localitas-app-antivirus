@@ -4,7 +4,7 @@ go 1.26.3
 
 require (
 	github.com/grandcat/zeroconf v1.0.0
-	github.com/localitas/localitas-go v0.0.0-00010101000000-000000000000
+	github.com/localitas/localitas-go v0.1.12
 	github.com/urfave/cli/v3 v3.9.1
 )
 
@@ -15,4 +15,3 @@ require (
 	golang.org/x/net v0.55.0 // indirect
 	golang.org/x/sys v0.45.0 // indirect
 )
-

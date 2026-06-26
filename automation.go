@@ -8,7 +8,7 @@ import (
 	"time"
 )
 
-const scanAutomationName = "Antivirus Managed FS Scan"
+const scanAutomationName = "Antivirus: Managed FS Scan"
 
 func RegisterScanAutomation(coreURL, token, appURL string) {
 	if automationExists(coreURL, token, scanAutomationName) {
@@ -21,7 +21,7 @@ func RegisterScanAutomation(coreURL, token, appURL string) {
 		"description": "Periodically scans all files in managed Raft-backed filesystem for threats",
 		"dag_config": map[string]interface{}{
 			"dag_id":      "antivirus_managed_scan",
-			"name":        "Antivirus Managed FS Scan",
+			"name":        "Antivirus: Managed FS Scan",
 			"description": "Full scan of managed filesystem",
 			"nodes": []map[string]interface{}{
 				{

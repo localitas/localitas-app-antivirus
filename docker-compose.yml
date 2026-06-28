@@ -1,6 +1,7 @@
 services:
   web:
     image: ghcr.io/localitas/localitas-app-antivirus:latest
+    command: ["serve", "--listen", ":8000", "--base-path", "/apps/ext/antivirus/"]
     ports:
       - "${APP_PORT:-9211}:8000"
     environment:

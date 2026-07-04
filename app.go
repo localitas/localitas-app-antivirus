@@ -5,12 +5,14 @@ import (
 	"embed"
 	"fmt"
 	"html/template"
-	"log"
+	"log/slog"
 	"net/http"
 	"time"
 
 	"github.com/localitas/localitas-go"
 )
+
+var logger = slog.Default().With("component", "antivirus")
 
 //go:embed templates/*.html
 var TemplatesFS embed.FS
@@ -45,19 +47,19 @@ func New(c *client.Client, basePath string) *App {
 
 func (a *App) Install(ctx context.Context) (string, error) {
 	if err := a.ensureClamAV(); err != nil {
-		log.Printf("[Antivirus] ⚠️  ClamAV setup issue: %v", err)
-		log.Printf("[Antivirus] Scanning will be unavailable until ClamAV is installed and clamd is running")
+		logger.Warn("ClamAV setup issue", "error", err)
+		logger.Warn("scanning will be unavailable until ClamAV is installed and clamd is running")
 	}
 
 	for attempt := 1; ; attempt++ {
 		db, err := a.client.CreateSystemDatabase(ctx, DatabaseName)
 		if err != nil {
-			log.Printf("install: attempt %d failed (retrying): %v", attempt, err)
+			logger.Warn("install attempt failed", "attempt", attempt, "error", err)
 			time.Sleep(2 * time.Second)
 			continue
 		}
 		if err := applyEmbeddedMigrations(ctx, a.client, db.ID); err != nil {
-			log.Printf("install: migrations attempt %d failed (retrying): %v", attempt, err)
+			logger.Warn("install migrations attempt failed", "attempt", attempt, "error", err)
 			time.Sleep(2 * time.Second)
 			continue
 		}
@@ -94,21 +96,21 @@ func (a *App) ensureClamAV() error {
 		for i := 0; i < 30; i++ {
 			time.Sleep(time.Second)
 			if IsClamdRunning(a.socketPath) {
-				log.Printf("[Antivirus] clamd is ready")
+				logger.Info("clamd is ready")
 				return nil
 			}
 		}
 		return fmt.Errorf("clamd did not start within 30 seconds")
 	}
 
-	log.Printf("[Antivirus] clamd is running")
+	logger.Info("clamd is running")
 	return nil
 }
 
 func (a *App) handleIndex(w http.ResponseWriter, r *http.Request) {
 	tmpl, err := template.ParseFS(TemplatesFS, "templates/index.html")
 	if err != nil {
-		log.Printf("antivirus index template error: %v", err)
+		logger.Error("index template error", "error", err)
 		http.Error(w, "template error", http.StatusInternalServerError)
 		return
 	}

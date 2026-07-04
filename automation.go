@@ -3,7 +3,6 @@ package antivirus
 import (
 	"bytes"
 	"encoding/json"
-	"log"
 	"net/http"
 	"time"
 )
@@ -12,7 +11,7 @@ const scanAutomationName = "Antivirus: Managed FS Scan"
 
 func RegisterScanAutomation(coreURL, token, appURL string) {
 	if automationExists(coreURL, token, scanAutomationName) {
-		log.Printf("✅ Antivirus scan automation already registered")
+		logger.Info("scan automation already registered")
 		return
 	}
 
@@ -53,7 +52,7 @@ func RegisterScanAutomation(coreURL, token, appURL string) {
 	b, _ := json.Marshal(body)
 	req, err := http.NewRequest("POST", coreURL+"/apps/automation/api/automations", bytes.NewReader(b))
 	if err != nil {
-		log.Printf("⚠️  Failed to create scan automation request: %v", err)
+		logger.Error("failed to create scan automation request", "error", err)
 		return
 	}
 	req.Header.Set("Content-Type", "application/json")
@@ -64,15 +63,15 @@ func RegisterScanAutomation(coreURL, token, appURL string) {
 	client := &http.Client{Timeout: 10 * time.Second}
 	resp, err := client.Do(req)
 	if err != nil {
-		log.Printf("⚠️  Failed to register scan automation: %v", err)
+		logger.Error("failed to register scan automation", "error", err)
 		return
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode == http.StatusCreated || resp.StatusCode == http.StatusOK {
-		log.Printf("✅ Registered managed FS scan automation (daily 2am)")
+		logger.Info("registered managed FS scan automation", "schedule", "daily 2am")
 	} else {
-		log.Printf("⚠️  Scan automation registration returned %d", resp.StatusCode)
+		logger.Warn("scan automation registration returned unexpected status", "status", resp.StatusCode)
 	}
 }
 

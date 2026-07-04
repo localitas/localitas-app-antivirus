@@ -2,7 +2,6 @@ package antivirus
 
 import (
 	"fmt"
-	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -44,7 +43,7 @@ func InstallClamAV() error {
 		return fmt.Errorf("Homebrew not found, please install clamav manually")
 	}
 
-	log.Printf("[Antivirus] Installing ClamAV via Homebrew...")
+	logger.Info("installing ClamAV via Homebrew")
 	cmd := exec.Command("brew", "install", "clamav")
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
@@ -52,7 +51,7 @@ func InstallClamAV() error {
 		return fmt.Errorf("brew install clamav: %w", err)
 	}
 
-	log.Printf("[Antivirus] ClamAV installed successfully")
+	logger.Info("ClamAV installed successfully")
 	return nil
 }
 
@@ -90,7 +89,7 @@ ScanArchive yes
 	if err := os.WriteFile(confPath, []byte(conf), 0644); err != nil {
 		return fmt.Errorf("write clamd.conf: %w", err)
 	}
-	log.Printf("[Antivirus] Created clamd.conf at %s", confPath)
+	logger.Info("created clamd.conf", "path", confPath)
 	return nil
 }
 
@@ -102,17 +101,17 @@ NotifyClamd ` + DefaultConfPath() + "\n"
 		os.WriteFile(freshclamConf, []byte(conf), 0644)
 	}
 
-	log.Printf("[Antivirus] Updating virus definitions...")
+	logger.Info("updating virus definitions")
 	cmd := exec.Command("freshclam", "--quiet")
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	if err := cmd.Run(); err != nil {
-		log.Printf("[Antivirus] ⚠️  freshclam update failed (may need to run manually): %v", err)
+		logger.Warn("freshclam update failed, may need to run manually", "error", err)
 	}
 }
 
 func StartClamd() error {
-	log.Printf("[Antivirus] Starting clamd...")
+	logger.Info("starting clamd")
 	cmd := exec.Command("clamd")
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
@@ -120,6 +119,6 @@ func StartClamd() error {
 		return fmt.Errorf("start clamd: %w", err)
 	}
 	go cmd.Wait()
-	log.Printf("[Antivirus] clamd started (PID %d)", cmd.Process.Pid)
+	logger.Info("clamd started", "pid", cmd.Process.Pid)
 	return nil
 }

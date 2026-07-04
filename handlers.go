@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/localitas/localitas-go"
+	"github.com/localitas/localitas-go/httputil"
 )
 
 type handler struct {
@@ -25,14 +26,14 @@ func (h *handler) handleScan(w http.ResponseWriter, r *http.Request) {
 	r.ParseMultipartForm(100 << 20)
 	file, header, err := r.FormFile("file")
 	if err != nil {
-		writeErr(w, http.StatusBadRequest, "file is required")
+		writeErr(w, r, http.StatusBadRequest, "file is required")
 		return
 	}
 	defer file.Close()
 
 	tmpFile, err := os.CreateTemp("", "antivirus-scan-*"+filepath.Ext(header.Filename))
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, "create temp file: %v", err)
+		writeErr(w, r, http.StatusInternalServerError, "create temp file: %v", err)
 		return
 	}
 	tmpPath := tmpFile.Name()
@@ -41,7 +42,7 @@ func (h *handler) handleScan(w http.ResponseWriter, r *http.Request) {
 	written, err := io.Copy(tmpFile, file)
 	if err != nil {
 		tmpFile.Close()
-		writeErr(w, http.StatusInternalServerError, "write temp file: %v", err)
+		writeErr(w, r, http.StatusInternalServerError, "write temp file: %v", err)
 		return
 	}
 	tmpFile.Close()
@@ -49,7 +50,7 @@ func (h *handler) handleScan(w http.ResponseWriter, r *http.Request) {
 	start := time.Now()
 	scanFile, err := os.Open(tmpPath)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, "open for scan: %v", err)
+		writeErr(w, r, http.StatusInternalServerError, "open for scan: %v", err)
 		return
 	}
 
@@ -58,7 +59,7 @@ func (h *handler) handleScan(w http.ResponseWriter, r *http.Request) {
 	duration := time.Since(start).Milliseconds()
 
 	if scanErr != nil {
-		writeErr(w, http.StatusInternalServerError, "scan failed: %v", scanErr)
+		writeErr(w, r, http.StatusInternalServerError, "scan failed: %v", scanErr)
 		return
 	}
 
@@ -68,7 +69,7 @@ func (h *handler) handleScan(w http.ResponseWriter, r *http.Request) {
 	if clean {
 		storagePath, err = h.moveToManaged(r, userID, tmpPath, header.Filename)
 		if err != nil {
-			writeErr(w, http.StatusInternalServerError, "move to managed: %v", err)
+			writeErr(w, r, http.StatusInternalServerError, "move to managed: %v", err)
 			return
 		}
 	} else {
@@ -77,11 +78,11 @@ func (h *handler) handleScan(w http.ResponseWriter, r *http.Request) {
 
 	result, err := h.app.Store.RecordScan(r.Context(), userID, header.Filename, written, verdict, threatName, storagePath, duration)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, "record scan: %v", err)
+		writeErr(w, r, http.StatusInternalServerError, "record scan: %v", err)
 		return
 	}
 
-	writeJSON(w, http.StatusOK, result)
+	writeJSON(w, r, http.StatusOK, result)
 }
 
 func (h *handler) moveToManaged(r *http.Request, userID, tmpPath, filename string) (string, error) {
@@ -135,18 +136,18 @@ func (h *handler) handleScanManaged(w http.ResponseWriter, r *http.Request) {
 		Path string `json:"path"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeErr(w, http.StatusBadRequest, "invalid body")
+		writeErr(w, r, http.StatusBadRequest, "invalid body")
 		return
 	}
 	if req.Path == "" {
-		writeErr(w, http.StatusBadRequest, "path is required")
+		writeErr(w, r, http.StatusBadRequest, "path is required")
 		return
 	}
 
 	webdavURL := fmt.Sprintf("%s/apps/filesystem/webdav/managed/%s", h.app.CoreURL, url.PathEscape(req.Path))
 	getReq, err := http.NewRequestWithContext(r.Context(), "GET", webdavURL, nil)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, "build request: %v", err)
+		writeErr(w, r, http.StatusInternalServerError, "build request: %v", err)
 		return
 	}
 	if h.app.AuthToken != "" {
@@ -156,13 +157,13 @@ func (h *handler) handleScanManaged(w http.ResponseWriter, r *http.Request) {
 	httpClient := &http.Client{Timeout: 60 * time.Second}
 	resp, err := httpClient.Do(getReq)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, "fetch file: %v", err)
+		writeErr(w, r, http.StatusInternalServerError, "fetch file: %v", err)
 		return
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != 200 {
-		writeErr(w, http.StatusNotFound, "file not found: %s", req.Path)
+		writeErr(w, r, http.StatusNotFound, "file not found: %s", req.Path)
 		return
 	}
 
@@ -171,7 +172,7 @@ func (h *handler) handleScanManaged(w http.ResponseWriter, r *http.Request) {
 	duration := time.Since(start).Milliseconds()
 
 	if scanErr != nil {
-		writeErr(w, http.StatusInternalServerError, "scan failed: %v", scanErr)
+		writeErr(w, r, http.StatusInternalServerError, "scan failed: %v", scanErr)
 		return
 	}
 
@@ -183,11 +184,11 @@ func (h *handler) handleScanManaged(w http.ResponseWriter, r *http.Request) {
 	filename := filepath.Base(req.Path)
 	result, err := h.app.Store.RecordScan(r.Context(), userID, filename, resp.ContentLength, verdict, threatName, req.Path, duration)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, "record: %v", err)
+		writeErr(w, r, http.StatusInternalServerError, "record: %v", err)
 		return
 	}
 
-	writeJSON(w, http.StatusOK, result)
+	writeJSON(w, r, http.StatusOK, result)
 }
 
 func (h *handler) handleHistory(w http.ResponseWriter, r *http.Request) {
@@ -197,13 +198,13 @@ func (h *handler) handleHistory(w http.ResponseWriter, r *http.Request) {
 
 	results, err := h.app.Store.ListHistory(r.Context(), userID, limit, offset)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, "%v", err)
+		writeErr(w, r, http.StatusInternalServerError, "%v", err)
 		return
 	}
 	if results == nil {
 		results = make([]*ScanResult, 0)
 	}
-	writeJSON(w, http.StatusOK, results)
+	writeJSON(w, r, http.StatusOK, results)
 }
 
 func (h *handler) handleStatus(w http.ResponseWriter, r *http.Request) {
@@ -227,7 +228,7 @@ func (h *handler) handleStatus(w http.ResponseWriter, r *http.Request) {
 	status.ThreatsFound = threats
 	status.CleanFiles = clean
 
-	writeJSON(w, http.StatusOK, status)
+	writeJSON(w, r, http.StatusOK, status)
 }
 
 func (h *handler) handleScanManagedAll(w http.ResponseWriter, r *http.Request) {
@@ -236,7 +237,7 @@ func (h *handler) handleScanManagedAll(w http.ResponseWriter, r *http.Request) {
 	listURL := fmt.Sprintf("%s/apps/filesystem/api/files?path_prefix=managed/&limit=10000", h.app.CoreURL)
 	listReq, err := http.NewRequestWithContext(r.Context(), "GET", listURL, nil)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, "build request: %v", err)
+		writeErr(w, r, http.StatusInternalServerError, "build request: %v", err)
 		return
 	}
 	if h.app.AuthToken != "" {
@@ -246,7 +247,7 @@ func (h *handler) handleScanManagedAll(w http.ResponseWriter, r *http.Request) {
 	httpClient := &http.Client{Timeout: 30 * time.Second}
 	listResp, err := httpClient.Do(listReq)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, "list files: %v", err)
+		writeErr(w, r, http.StatusInternalServerError, "list files: %v", err)
 		return
 	}
 	defer listResp.Body.Close()
@@ -256,7 +257,7 @@ func (h *handler) handleScanManagedAll(w http.ResponseWriter, r *http.Request) {
 		Size int64  `json:"size"`
 	}
 	if err := json.NewDecoder(listResp.Body).Decode(&files); err != nil {
-		writeErr(w, http.StatusInternalServerError, "parse file list: %v", err)
+		writeErr(w, r, http.StatusInternalServerError, "parse file list: %v", err)
 		return
 	}
 
@@ -302,22 +303,18 @@ func (h *handler) handleScanManagedAll(w http.ResponseWriter, r *http.Request) {
 		results = make([]*ScanResult, 0)
 	}
 
-	writeJSON(w, http.StatusOK, map[string]interface{}{
+	writeJSON(w, r, http.StatusOK, map[string]interface{}{
 		"scanned": len(results),
 		"results": results,
 	})
 }
 
-func writeJSON(w http.ResponseWriter, status int, v interface{}) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(status)
-	json.NewEncoder(w).Encode(v)
+func writeJSON(w http.ResponseWriter, r *http.Request, status int, v interface{}) {
+	httputil.WriteResponse(w, r, status, v)
 }
 
-func writeErr(w http.ResponseWriter, status int, format string, args ...interface{}) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(status)
-	json.NewEncoder(w).Encode(map[string]string{"error": fmt.Sprintf(format, args...)})
+func writeErr(w http.ResponseWriter, r *http.Request, status int, format string, args ...interface{}) {
+	httputil.WriteError(w, r, status, format, args...)
 }
 
 func intParam(r *http.Request, key string, def int) int {

@@ -1,12 +1,9 @@
 package antivirus
 
 import (
-	"bytes"
 	"encoding/json"
-	"fmt"
 	"io"
 	"net/http"
-	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -64,19 +61,11 @@ func (h *handler) handleScan(w http.ResponseWriter, r *http.Request) {
 	}
 
 	verdict := "clean"
-	storagePath := ""
-
-	if clean {
-		storagePath, err = h.moveToManaged(r, userID, tmpPath, header.Filename)
-		if err != nil {
-			writeErr(w, r, http.StatusInternalServerError, "move to managed: %v", err)
-			return
-		}
-	} else {
+	if !clean {
 		verdict = "infected"
 	}
 
-	result, err := h.app.Store.RecordScan(r.Context(), userID, header.Filename, written, verdict, threatName, storagePath, duration)
+	result, err := h.app.Store.RecordScan(r.Context(), userID, header.Filename, written, verdict, threatName, tmpPath, duration)
 	if err != nil {
 		writeErr(w, r, http.StatusInternalServerError, "record scan: %v", err)
 		return
@@ -85,51 +74,7 @@ func (h *handler) handleScan(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, r, http.StatusOK, result)
 }
 
-func (h *handler) moveToManaged(r *http.Request, userID, tmpPath, filename string) (string, error) {
-	data, err := os.ReadFile(tmpPath)
-	if err != nil {
-		return "", err
-	}
-
-	storagePath := fmt.Sprintf("downloads/%s/%s", userID, filename)
-	dirURL := fmt.Sprintf("%s/apps/filesystem/webdav/managed/downloads/%s/", h.app.CoreURL, userID)
-
-	httpClient := &http.Client{Timeout: 60 * time.Second}
-
-	mkReq, _ := http.NewRequestWithContext(r.Context(), "MKCOL", dirURL, nil)
-	if h.app.AuthToken != "" {
-		mkReq.Header.Set("Authorization", "Bearer "+h.app.AuthToken)
-	}
-	mkResp, _ := httpClient.Do(mkReq)
-	if mkResp != nil {
-		mkResp.Body.Close()
-	}
-
-	webdavURL := fmt.Sprintf("%s/apps/filesystem/webdav/managed/%s", h.app.CoreURL, url.PathEscape(storagePath))
-	putReq, err := http.NewRequestWithContext(r.Context(), "PUT", webdavURL, bytes.NewReader(data))
-	if err != nil {
-		return "", err
-	}
-	if h.app.AuthToken != "" {
-		putReq.Header.Set("Authorization", "Bearer "+h.app.AuthToken)
-	}
-	putReq.Header.Set("Content-Type", "application/octet-stream")
-
-	resp, err := httpClient.Do(putReq)
-	if err != nil {
-		return "", fmt.Errorf("webdav put: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != 201 && resp.StatusCode != 200 && resp.StatusCode != 204 {
-		body, _ := io.ReadAll(resp.Body)
-		return "", fmt.Errorf("webdav put %d: %s", resp.StatusCode, string(body[:min(len(body), 200)]))
-	}
-
-	return storagePath, nil
-}
-
-func (h *handler) handleScanManaged(w http.ResponseWriter, r *http.Request) {
+func (h *handler) handleScanFolder(w http.ResponseWriter, r *http.Request) {
 	userID := client.UserIDFromRequest(r)
 
 	var req struct {
@@ -144,50 +89,26 @@ func (h *handler) handleScanManaged(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	webdavURL := fmt.Sprintf("%s/apps/filesystem/webdav/managed/%s", h.app.CoreURL, url.PathEscape(req.Path))
-	getReq, err := http.NewRequestWithContext(r.Context(), "GET", webdavURL, nil)
+	info, err := os.Stat(req.Path)
 	if err != nil {
-		writeErr(w, r, http.StatusInternalServerError, "build request: %v", err)
-		return
-	}
-	if h.app.AuthToken != "" {
-		getReq.Header.Set("Authorization", "Bearer "+h.app.AuthToken)
-	}
-
-	httpClient := &http.Client{Timeout: 60 * time.Second}
-	resp, err := httpClient.Do(getReq)
-	if err != nil {
-		writeErr(w, r, http.StatusInternalServerError, "fetch file: %v", err)
-		return
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != 200 {
-		writeErr(w, r, http.StatusNotFound, "file not found: %s", req.Path)
+		writeErr(w, r, http.StatusBadRequest, "path not accessible: %v", err)
 		return
 	}
 
-	start := time.Now()
-	clean, threatName, scanErr := h.app.Scanner.ScanStream(resp.Body)
-	duration := time.Since(start).Milliseconds()
-
-	if scanErr != nil {
-		writeErr(w, r, http.StatusInternalServerError, "scan failed: %v", scanErr)
+	if info.IsDir() {
+		results := h.scanDirectory(r, userID, req.Path)
+		writeJSON(w, r, http.StatusOK, map[string]interface{}{
+			"scanned": len(results),
+			"results": results,
+		})
 		return
 	}
 
-	verdict := "clean"
-	if !clean {
-		verdict = "infected"
-	}
-
-	filename := filepath.Base(req.Path)
-	result, err := h.app.Store.RecordScan(r.Context(), userID, filename, resp.ContentLength, verdict, threatName, req.Path, duration)
-	if err != nil {
-		writeErr(w, r, http.StatusInternalServerError, "record: %v", err)
+	result := h.scanSingleFile(r, userID, req.Path, info.Size())
+	if result == nil {
+		writeErr(w, r, http.StatusInternalServerError, "scan failed")
 		return
 	}
-
 	writeJSON(w, r, http.StatusOK, result)
 }
 
@@ -229,122 +150,6 @@ func (h *handler) handleStatus(w http.ResponseWriter, r *http.Request) {
 	status.CleanFiles = clean
 
 	writeJSON(w, r, http.StatusOK, status)
-}
-
-func (h *handler) handleScanManagedAll(w http.ResponseWriter, r *http.Request) {
-	userID := client.UserIDFromRequest(r)
-
-	listURL := fmt.Sprintf("%s/apps/filesystem/api/files?path_prefix=managed/&limit=10000", h.app.CoreURL)
-	listReq, err := http.NewRequestWithContext(r.Context(), "GET", listURL, nil)
-	if err != nil {
-		writeErr(w, r, http.StatusInternalServerError, "build request: %v", err)
-		return
-	}
-	if h.app.AuthToken != "" {
-		listReq.Header.Set("Authorization", "Bearer "+h.app.AuthToken)
-	}
-
-	httpClient := &http.Client{Timeout: 30 * time.Second}
-	listResp, err := httpClient.Do(listReq)
-	if err != nil {
-		writeErr(w, r, http.StatusInternalServerError, "list files: %v", err)
-		return
-	}
-	defer listResp.Body.Close()
-
-	var files []struct {
-		Path string `json:"path"`
-		Size int64  `json:"size"`
-	}
-	if err := json.NewDecoder(listResp.Body).Decode(&files); err != nil {
-		writeErr(w, r, http.StatusInternalServerError, "parse file list: %v", err)
-		return
-	}
-
-	var results []*ScanResult
-	for _, f := range files {
-		webdavURL := fmt.Sprintf("%s/apps/filesystem/webdav/%s", h.app.CoreURL, f.Path)
-		getReq, err := http.NewRequestWithContext(r.Context(), "GET", webdavURL, nil)
-		if err != nil {
-			continue
-		}
-		if h.app.AuthToken != "" {
-			getReq.Header.Set("Authorization", "Bearer "+h.app.AuthToken)
-		}
-
-		resp, err := httpClient.Do(getReq)
-		if err != nil {
-			continue
-		}
-
-		start := time.Now()
-		clean, threatName, scanErr := h.app.Scanner.ScanStream(resp.Body)
-		resp.Body.Close()
-		duration := time.Since(start).Milliseconds()
-
-		if scanErr != nil {
-			continue
-		}
-
-		verdict := "clean"
-		if !clean {
-			verdict = "infected"
-		}
-
-		filename := filepath.Base(f.Path)
-		result, err := h.app.Store.RecordScan(r.Context(), userID, filename, f.Size, verdict, threatName, f.Path, duration)
-		if err != nil {
-			continue
-		}
-		results = append(results, result)
-	}
-
-	if results == nil {
-		results = make([]*ScanResult, 0)
-	}
-
-	writeJSON(w, r, http.StatusOK, map[string]interface{}{
-		"scanned": len(results),
-		"results": results,
-	})
-}
-
-func (h *handler) handleScanLocal(w http.ResponseWriter, r *http.Request) {
-	userID := client.UserIDFromRequest(r)
-
-	var req struct {
-		Path string `json:"path"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeErr(w, r, http.StatusBadRequest, "invalid body")
-		return
-	}
-	if req.Path == "" {
-		writeErr(w, r, http.StatusBadRequest, "path is required")
-		return
-	}
-
-	info, err := os.Stat(req.Path)
-	if err != nil {
-		writeErr(w, r, http.StatusBadRequest, "path not accessible: %v", err)
-		return
-	}
-
-	if info.IsDir() {
-		results := h.scanDirectory(r, userID, req.Path)
-		writeJSON(w, r, http.StatusOK, map[string]interface{}{
-			"scanned": len(results),
-			"results": results,
-		})
-		return
-	}
-
-	result := h.scanSingleFile(r, userID, req.Path, info.Size())
-	if result == nil {
-		writeErr(w, r, http.StatusInternalServerError, "scan failed")
-		return
-	}
-	writeJSON(w, r, http.StatusOK, result)
 }
 
 func (h *handler) scanSingleFile(r *http.Request, userID, filePath string, fileSize int64) *ScanResult {

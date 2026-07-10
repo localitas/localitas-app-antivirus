@@ -17,12 +17,13 @@ func HandleCron(w http.ResponseWriter, r *http.Request) {
 	spec := map[string]interface{}{
 		"jobs": []map[string]interface{}{
 			{
-				"id":          "cron:antivirus:local-scan",
-				"path":        "/api/scan-local",
-				"method":      "POST",
-				"schedule":    "0 2 * * *",
-				"description": "Scans all files in localitas data directory for threats",
-				"timeout":     "3600s",
+				"id":                 "cron:antivirus:scan-folder",
+				"path":               "/api/scan-folder",
+				"method":             "POST",
+				"schedule":           "0 2 * * *",
+				"description":        "Scans all files in localitas data directory for threats",
+				"execution_strategy": "all_nodes",
+				"timeout":            "3600s",
 				"body": map[string]interface{}{
 					"path": dataDir,
 				},

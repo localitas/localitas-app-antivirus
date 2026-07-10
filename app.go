@@ -126,12 +126,10 @@ func (a *App) handleIndex(w http.ResponseWriter, r *http.Request) {
 func (a *App) RegisterRoutes(mux *http.ServeMux) {
 	h := &handler{app: a}
 	mux.HandleFunc("GET /{$}", a.handleIndex)
-	mux.HandleFunc("POST /api/scan", h.handleScan)
+	mux.HandleFunc("POST /api/scan-file", h.handleScan)
+	mux.HandleFunc("POST /api/scan-folder", h.handleScanFolder)
 	mux.HandleFunc("GET /api/history", h.handleHistory)
 	mux.HandleFunc("GET /api/status", h.handleStatus)
-	mux.HandleFunc("POST /api/scan-managed", h.handleScanManaged)
-	mux.HandleFunc("POST /api/scan-managed-all", h.handleScanManagedAll)
-	mux.HandleFunc("POST /api/scan-local", h.handleScanLocal)
 	mux.HandleFunc("GET /swagger.json", HandleSwagger)
 	mux.HandleFunc("GET /help.md", handleHelpMarkdown)
 }

@@ -78,7 +78,8 @@ func (h *handler) handleScanFolder(w http.ResponseWriter, r *http.Request) {
 	userID := client.UserIDFromRequest(r)
 
 	var req struct {
-		Path string `json:"path"`
+		Path    string   `json:"path"`
+		Exclude []string `json:"exclude,omitempty"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeErr(w, r, http.StatusBadRequest, "invalid body")
@@ -89,30 +90,50 @@ func (h *handler) handleScanFolder(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	scanResults, err := h.app.Scanner.ContScanPath(req.Path)
-	if err != nil {
-		writeErr(w, r, http.StatusInternalServerError, "scan failed: %v", err)
-		return
-	}
-
 	var results []*ScanResult
-	for _, sr := range scanResults {
+	scanned := 0
+	filepath.Walk(req.Path, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return nil
+		}
+		if info.IsDir() {
+			base := filepath.Base(path)
+			for _, ex := range req.Exclude {
+				if matched, _ := filepath.Match(ex, base); matched {
+					return filepath.SkipDir
+				}
+			}
+			return nil
+		}
+		for _, ex := range req.Exclude {
+			if matched, _ := filepath.Match(ex, filepath.Base(path)); matched {
+				return nil
+			}
+		}
+
+		clean, threatName, scanErr := h.app.Scanner.ScanPath(path)
+		if scanErr != nil {
+			return nil
+		}
+		scanned++
+
 		verdict := "clean"
-		if !sr.Clean {
+		if !clean {
 			verdict = "infected"
 		}
-		result, recErr := h.app.Store.RecordScan(r.Context(), userID, filepath.Base(sr.Path), 0, verdict, sr.ThreatName, sr.Path, 0)
-		if recErr != nil {
-			continue
+		result, recErr := h.app.Store.RecordScan(r.Context(), userID, filepath.Base(path), info.Size(), verdict, threatName, path, 0)
+		if recErr == nil {
+			results = append(results, result)
 		}
-		results = append(results, result)
-	}
+		return nil
+	})
+
 	if results == nil {
 		results = make([]*ScanResult, 0)
 	}
 
 	writeJSON(w, r, http.StatusOK, map[string]interface{}{
-		"scanned": len(results),
+		"scanned": scanned,
 		"results": results,
 	})
 }

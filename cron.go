@@ -26,6 +26,15 @@ func HandleCron(w http.ResponseWriter, r *http.Request) {
 				"timeout":            "3600s",
 				"body": map[string]interface{}{
 					"path": dataDir,
+					"exclude": []string{
+						"raft",
+						"bleve-indices",
+						"logs",
+						"*.sqlitedb",
+						"*.sqlitedb-wal",
+						"*.sqlitedb-shm",
+						"*.log",
+					},
 				},
 				"retry": map[string]interface{}{
 					"max_attempts": 1,

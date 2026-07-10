@@ -11,7 +11,7 @@ import (
 
 func DefaultSocketPath() string {
 	if runtime.GOOS == "darwin" {
-		return "/opt/homebrew/var/run/clamav/clamd.sock"
+		return "/tmp/clamav/clamd.sock"
 	}
 	return "/var/run/clamav/clamd.ctl"
 }

@@ -9,7 +9,8 @@ services:
       - LOCALITAS_API_TOKEN=${LOCALITAS_API_TOKEN:-}
       - LOCALITAS_DATA_DIR=${HOME}/.localitas
     volumes:
-      - /tmp/clamav/clamd.sock:/var/run/clamav/clamd.sock:ro
+      - ${HOME}/.localitas/clamav/clamd.sock:/var/run/clamav/clamd.sock
+    user: "0:0"
     labels:
       localitas.app: "true"
     restart: unless-stopped

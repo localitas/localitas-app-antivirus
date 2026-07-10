@@ -11,7 +11,8 @@ import (
 
 func DefaultSocketPath() string {
 	if runtime.GOOS == "darwin" {
-		return "/tmp/clamav/clamd.sock"
+		home, _ := os.UserHomeDir()
+		return filepath.Join(home, ".localitas", "clamav", "clamd.sock")
 	}
 	return "/var/run/clamav/clamd.ctl"
 }

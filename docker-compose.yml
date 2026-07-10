@@ -1,12 +1,15 @@
 services:
   web:
     image: ghcr.io/localitas/localitas-app-antivirus:latest
-    command: ["serve", "--listen", ":8000", "--base-path", "/apps/ext/antivirus/"]
+    command: ["serve", "--listen", ":8000", "--base-path", "/apps/ext/antivirus/", "--clamd-socket", "/var/run/clamav/clamd.sock"]
     ports:
       - "${APP_PORT:-9211}:8000"
     environment:
       - CORE_URL=http://host.docker.internal:8090
       - LOCALITAS_API_TOKEN=${LOCALITAS_API_TOKEN:-}
+    volumes:
+      - /opt/homebrew/var/run/clamav/clamd.sock:/var/run/clamav/clamd.sock:ro
+      - ~/.localitas:/data/localitas:ro
     labels:
       localitas.app: "true"
     restart: unless-stopped

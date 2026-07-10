@@ -55,6 +55,7 @@ func commonFlags() []cli.Flag {
 		&cli.StringFlag{Name: "core-url", Value: client.DefaultCoreURL(), Usage: "base URL of the Localitas core API"},
 		&cli.StringFlag{Name: "base-path", Value: "/", Usage: "URL prefix for <base href>"},
 		&cli.StringFlag{Name: "token", Value: envOrFileToken(), Usage: "bearer token for API calls"},
+		&cli.StringFlag{Name: "clamd-socket", Value: "", Usage: "path to clamd Unix socket (auto-detected if empty)"},
 	}
 }
 
@@ -81,7 +82,7 @@ func serveAction(ctx context.Context, cmd *cli.Command) error {
 	token := cmd.String("token")
 	c := newClient(cmd)
 
-	a := antivirus.New(c, basePath)
+	a := antivirus.New(c, basePath, cmd.String("clamd-socket"))
 
 	dbID, err := a.Install(ctx)
 	if err != nil {
@@ -140,7 +141,7 @@ func migrateCommand() *cli.Command {
 		Flags: commonFlags(),
 		Action: func(ctx context.Context, cmd *cli.Command) error {
 			c := newClient(cmd)
-			a := antivirus.New(c, "/")
+			a := antivirus.New(c, "/", "")
 			dbID, err := a.Install(ctx)
 			if err != nil {
 				return fmt.Errorf("migrate: %w", err)

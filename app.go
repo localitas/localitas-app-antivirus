@@ -32,11 +32,13 @@ type App struct {
 	socketPath string
 }
 
-func New(c *client.Client, basePath string) *App {
+func New(c *client.Client, basePath string, socketPath string) *App {
 	if basePath == "" {
 		basePath = "/"
 	}
-	socketPath := DefaultSocketPath()
+	if socketPath == "" {
+		socketPath = DefaultSocketPath()
+	}
 	return &App{
 		BasePath:   basePath,
 		client:     c,
@@ -77,9 +79,14 @@ func (a *App) InitStore(coreURL, dbID, token string) error {
 }
 
 func (a *App) ensureClamAV() error {
+	if IsClamdRunning(a.socketPath) {
+		logger.Info("clamd is running", "socket", a.socketPath)
+		return nil
+	}
+
 	if !IsClamAVInstalled() {
 		if err := InstallClamAV(); err != nil {
-			return err
+			return fmt.Errorf("clamd not reachable at %s and auto-install failed: %w", a.socketPath, err)
 		}
 	}
 
@@ -89,22 +96,17 @@ func (a *App) ensureClamAV() error {
 
 	EnsureFreshclam()
 
-	if !IsClamdRunning(a.socketPath) {
-		if err := StartClamd(); err != nil {
-			return err
-		}
-		for i := 0; i < 30; i++ {
-			time.Sleep(time.Second)
-			if IsClamdRunning(a.socketPath) {
-				logger.Info("clamd is ready")
-				return nil
-			}
-		}
-		return fmt.Errorf("clamd did not start within 30 seconds")
+	if err := StartClamd(); err != nil {
+		return err
 	}
-
-	logger.Info("clamd is running")
-	return nil
+	for i := 0; i < 30; i++ {
+		time.Sleep(time.Second)
+		if IsClamdRunning(a.socketPath) {
+			logger.Info("clamd is ready")
+			return nil
+		}
+	}
+	return fmt.Errorf("clamd did not start within 30 seconds")
 }
 
 func (a *App) handleIndex(w http.ResponseWriter, r *http.Request) {

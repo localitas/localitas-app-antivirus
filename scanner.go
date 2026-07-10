@@ -59,6 +59,41 @@ func (s *Scanner) Version() (string, error) {
 	return strings.TrimRight(string(buf[:n]), "\x00\n"), nil
 }
 
+func (s *Scanner) ScanPath(filePath string) (clean bool, threatName string, err error) {
+	conn, err := net.DialTimeout("unix", s.socketPath, 10*time.Second)
+	if err != nil {
+		return false, "", fmt.Errorf("clamd not reachable: %w", err)
+	}
+	defer conn.Close()
+	conn.SetDeadline(time.Now().Add(5 * time.Minute))
+
+	cmd := fmt.Sprintf("zSCAN %s\x00", filePath)
+	if _, err := conn.Write([]byte(cmd)); err != nil {
+		return false, "", fmt.Errorf("send SCAN: %w", err)
+	}
+
+	resp := make([]byte, 1024)
+	n, readErr := conn.Read(resp)
+	if readErr != nil {
+		return false, "", fmt.Errorf("read response: %w", readErr)
+	}
+	response := strings.TrimRight(string(resp[:n]), "\x00\n")
+
+	if strings.HasSuffix(response, "OK") {
+		return true, "", nil
+	}
+	if strings.Contains(response, "FOUND") {
+		parts := strings.SplitN(response, ":", 2)
+		if len(parts) == 2 {
+			threat := strings.TrimSpace(parts[1])
+			threat = strings.TrimSuffix(threat, " FOUND")
+			return false, strings.TrimSpace(threat), nil
+		}
+		return false, "unknown", nil
+	}
+	return false, "", fmt.Errorf("unexpected clamd response: %s", response)
+}
+
 func (s *Scanner) ScanStream(reader io.Reader) (clean bool, threatName string, err error) {
 	conn, err := net.DialTimeout("unix", s.socketPath, 10*time.Second)
 	if err != nil {

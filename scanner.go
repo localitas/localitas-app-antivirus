@@ -94,6 +94,62 @@ func (s *Scanner) ScanPath(filePath string) (clean bool, threatName string, err 
 	return false, "", fmt.Errorf("unexpected clamd response: %s", response)
 }
 
+type ContScanResult struct {
+	Path       string
+	Clean      bool
+	ThreatName string
+}
+
+func (s *Scanner) ContScanPath(dirPath string) ([]ContScanResult, error) {
+	conn, err := net.DialTimeout("unix", s.socketPath, 10*time.Second)
+	if err != nil {
+		return nil, fmt.Errorf("clamd not reachable: %w", err)
+	}
+	defer conn.Close()
+	conn.SetDeadline(time.Now().Add(30 * time.Minute))
+
+	cmd := fmt.Sprintf("zCONTSCAN %s\x00", dirPath)
+	if _, err := conn.Write([]byte(cmd)); err != nil {
+		return nil, fmt.Errorf("send CONTSCAN: %w", err)
+	}
+
+	var all []byte
+	buf := make([]byte, 4096)
+	for {
+		n, readErr := conn.Read(buf)
+		if n > 0 {
+			all = append(all, buf[:n]...)
+		}
+		if readErr != nil {
+			break
+		}
+	}
+
+	var results []ContScanResult
+	for _, line := range strings.Split(strings.TrimRight(string(all), "\x00\n"), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		parts := strings.SplitN(line, ":", 2)
+		if len(parts) != 2 {
+			continue
+		}
+		filePath := strings.TrimSpace(parts[0])
+		verdict := strings.TrimSpace(parts[1])
+
+		r := ContScanResult{Path: filePath}
+		if verdict == "OK" {
+			r.Clean = true
+		} else if strings.HasSuffix(verdict, "FOUND") {
+			r.Clean = false
+			r.ThreatName = strings.TrimSpace(strings.TrimSuffix(verdict, "FOUND"))
+		}
+		results = append(results, r)
+	}
+	return results, nil
+}
+
 func (s *Scanner) ScanStream(reader io.Reader) (clean bool, threatName string, err error) {
 	conn, err := net.DialTimeout("unix", s.socketPath, 10*time.Second)
 	if err != nil {

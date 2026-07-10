@@ -89,27 +89,32 @@ func (h *handler) handleScanFolder(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	info, err := os.Stat(req.Path)
+	scanResults, err := h.app.Scanner.ContScanPath(req.Path)
 	if err != nil {
-		writeErr(w, r, http.StatusBadRequest, "path not accessible: %v", err)
+		writeErr(w, r, http.StatusInternalServerError, "scan failed: %v", err)
 		return
 	}
 
-	if info.IsDir() {
-		results := h.scanDirectory(r, userID, req.Path)
-		writeJSON(w, r, http.StatusOK, map[string]interface{}{
-			"scanned": len(results),
-			"results": results,
-		})
-		return
+	var results []*ScanResult
+	for _, sr := range scanResults {
+		verdict := "clean"
+		if !sr.Clean {
+			verdict = "infected"
+		}
+		result, recErr := h.app.Store.RecordScan(r.Context(), userID, filepath.Base(sr.Path), 0, verdict, sr.ThreatName, sr.Path, 0)
+		if recErr != nil {
+			continue
+		}
+		results = append(results, result)
+	}
+	if results == nil {
+		results = make([]*ScanResult, 0)
 	}
 
-	result := h.scanSingleFile(r, userID, req.Path, info.Size())
-	if result == nil {
-		writeErr(w, r, http.StatusInternalServerError, "scan failed")
-		return
-	}
-	writeJSON(w, r, http.StatusOK, result)
+	writeJSON(w, r, http.StatusOK, map[string]interface{}{
+		"scanned": len(results),
+		"results": results,
+	})
 }
 
 func (h *handler) handleHistory(w http.ResponseWriter, r *http.Request) {
@@ -150,45 +155,6 @@ func (h *handler) handleStatus(w http.ResponseWriter, r *http.Request) {
 	status.CleanFiles = clean
 
 	writeJSON(w, r, http.StatusOK, status)
-}
-
-func (h *handler) scanSingleFile(r *http.Request, userID, filePath string, fileSize int64) *ScanResult {
-	start := time.Now()
-	clean, threatName, err := h.app.Scanner.ScanPath(filePath)
-	duration := time.Since(start).Milliseconds()
-	if err != nil {
-		logger.Error("scan failed", "path", filePath, "error", err)
-		return nil
-	}
-
-	verdict := "clean"
-	if !clean {
-		verdict = "infected"
-	}
-
-	result, err := h.app.Store.RecordScan(r.Context(), userID, filepath.Base(filePath), fileSize, verdict, threatName, filePath, duration)
-	if err != nil {
-		logger.Error("record scan failed", "path", filePath, "error", err)
-		return nil
-	}
-	return result
-}
-
-func (h *handler) scanDirectory(r *http.Request, userID, dirPath string) []*ScanResult {
-	var results []*ScanResult
-	filepath.Walk(dirPath, func(path string, info os.FileInfo, err error) error {
-		if err != nil || info.IsDir() {
-			return nil
-		}
-		if result := h.scanSingleFile(r, userID, path, info.Size()); result != nil {
-			results = append(results, result)
-		}
-		return nil
-	})
-	if results == nil {
-		results = make([]*ScanResult, 0)
-	}
-	return results
 }
 
 func writeJSON(w http.ResponseWriter, r *http.Request, status int, v interface{}) {

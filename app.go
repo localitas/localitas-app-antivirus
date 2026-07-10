@@ -131,6 +131,7 @@ func (a *App) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/status", h.handleStatus)
 	mux.HandleFunc("POST /api/scan-managed", h.handleScanManaged)
 	mux.HandleFunc("POST /api/scan-managed-all", h.handleScanManagedAll)
+	mux.HandleFunc("POST /api/scan-local", h.handleScanLocal)
 	mux.HandleFunc("GET /swagger.json", HandleSwagger)
 	mux.HandleFunc("GET /help.md", handleHelpMarkdown)
 }

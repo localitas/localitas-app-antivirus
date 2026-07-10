@@ -7,9 +7,9 @@ services:
     environment:
       - CORE_URL=http://host.docker.internal:8090
       - LOCALITAS_API_TOKEN=${LOCALITAS_API_TOKEN:-}
+      - LOCALITAS_DATA_DIR=${HOME}/.localitas
     volumes:
       - /opt/homebrew/var/run/clamav/clamd.sock:/var/run/clamav/clamd.sock:ro
-      - ~/.localitas:/data/localitas:ro
     labels:
       localitas.app: "true"
     restart: unless-stopped

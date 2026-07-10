@@ -309,6 +309,83 @@ func (h *handler) handleScanManagedAll(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+func (h *handler) handleScanLocal(w http.ResponseWriter, r *http.Request) {
+	userID := client.UserIDFromRequest(r)
+
+	var req struct {
+		Path string `json:"path"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeErr(w, r, http.StatusBadRequest, "invalid body")
+		return
+	}
+	if req.Path == "" {
+		writeErr(w, r, http.StatusBadRequest, "path is required")
+		return
+	}
+
+	info, err := os.Stat(req.Path)
+	if err != nil {
+		writeErr(w, r, http.StatusBadRequest, "path not accessible: %v", err)
+		return
+	}
+
+	if info.IsDir() {
+		results := h.scanDirectory(r, userID, req.Path)
+		writeJSON(w, r, http.StatusOK, map[string]interface{}{
+			"scanned": len(results),
+			"results": results,
+		})
+		return
+	}
+
+	result := h.scanSingleFile(r, userID, req.Path, info.Size())
+	if result == nil {
+		writeErr(w, r, http.StatusInternalServerError, "scan failed")
+		return
+	}
+	writeJSON(w, r, http.StatusOK, result)
+}
+
+func (h *handler) scanSingleFile(r *http.Request, userID, filePath string, fileSize int64) *ScanResult {
+	start := time.Now()
+	clean, threatName, err := h.app.Scanner.ScanPath(filePath)
+	duration := time.Since(start).Milliseconds()
+	if err != nil {
+		logger.Error("scan failed", "path", filePath, "error", err)
+		return nil
+	}
+
+	verdict := "clean"
+	if !clean {
+		verdict = "infected"
+	}
+
+	result, err := h.app.Store.RecordScan(r.Context(), userID, filepath.Base(filePath), fileSize, verdict, threatName, filePath, duration)
+	if err != nil {
+		logger.Error("record scan failed", "path", filePath, "error", err)
+		return nil
+	}
+	return result
+}
+
+func (h *handler) scanDirectory(r *http.Request, userID, dirPath string) []*ScanResult {
+	var results []*ScanResult
+	filepath.Walk(dirPath, func(path string, info os.FileInfo, err error) error {
+		if err != nil || info.IsDir() {
+			return nil
+		}
+		if result := h.scanSingleFile(r, userID, path, info.Size()); result != nil {
+			results = append(results, result)
+		}
+		return nil
+	})
+	if results == nil {
+		results = make([]*ScanResult, 0)
+	}
+	return results
+}
+
 func writeJSON(w http.ResponseWriter, r *http.Request, status int, v interface{}) {
 	httputil.WriteResponse(w, r, status, v)
 }

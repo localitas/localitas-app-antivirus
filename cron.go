@@ -3,18 +3,29 @@ package antivirus
 import (
 	"encoding/json"
 	"net/http"
+	"os"
+	"path/filepath"
 )
 
 func HandleCron(w http.ResponseWriter, r *http.Request) {
+	dataDir := os.Getenv("LOCALITAS_DATA_DIR")
+	if dataDir == "" {
+		homeDir, _ := os.UserHomeDir()
+		dataDir = filepath.Join(homeDir, ".localitas")
+	}
+
 	spec := map[string]interface{}{
 		"jobs": []map[string]interface{}{
 			{
-				"id":          "cron:antivirus:managed-scan",
-				"path":        "/api/scan-managed-all",
+				"id":          "cron:antivirus:local-scan",
+				"path":        "/api/scan-local",
 				"method":      "POST",
 				"schedule":    "0 2 * * *",
-				"description": "Scans all files in managed filesystem for threats",
-				"timeout":     "600s",
+				"description": "Scans all files in localitas data directory for threats",
+				"timeout":     "3600s",
+				"body": map[string]interface{}{
+					"path": dataDir,
+				},
 				"retry": map[string]interface{}{
 					"max_attempts": 1,
 				},

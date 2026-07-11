@@ -144,7 +144,7 @@ func (h *handler) handleScanFolder(w http.ResponseWriter, r *http.Request) {
 		return h.doScanFolder(ctx, userID, req.Path, req.Exclude)
 	}
 
-	if client.RunAsync(w, r, h.app.client, work) {
+	if h.app.client.RunAsync(w, r, work) {
 		return
 	}
 

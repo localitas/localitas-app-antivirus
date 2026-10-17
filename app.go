@@ -126,10 +126,12 @@ func (a *App) handleIndex(w http.ResponseWriter, r *http.Request) {
 func (a *App) RegisterRoutes(mux *http.ServeMux) {
 	h := &handler{app: a}
 	mux.HandleFunc("GET /{$}", a.handleIndex)
-	mux.HandleFunc("POST /api/scan-file", h.handleScan)
-	mux.HandleFunc("POST /api/scan-folder", h.handleScanFolder)
-	mux.HandleFunc("GET /api/history", h.handleHistory)
-	mux.HandleFunc("GET /api/status", h.handleStatus)
+	// Scans belong to the user core vouches for; uploading one needs write
+	// scope. Walking a host directory is core's nightly job alone.
+	mux.Handle("POST /api/scan-file", client.AuthMiddleware(client.RequireScopeFunc(client.ScopeWrite, h.handleScan)))
+	mux.HandleFunc("POST /api/scan-folder", client.RequireSystem(h.handleScanFolder))
+	mux.Handle("GET /api/history", client.AuthMiddleware(http.HandlerFunc(h.handleHistory)))
+	mux.Handle("GET /api/status", client.AuthMiddleware(http.HandlerFunc(h.handleStatus)))
 	mux.HandleFunc("GET /swagger.json", HandleSwagger)
 	mux.HandleFunc("GET /help.md", handleHelpMarkdown)
 }

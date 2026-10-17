@@ -18,8 +18,18 @@ type handler struct {
 	app *App
 }
 
+// scanOwners are whose scans a caller sees: their own, and for an admin
+// also the nightly system scans.
+func scanOwners(r *http.Request) []string {
+	owners := []string{client.GetUserID(r.Context())}
+	if client.HasScope(client.GetScope(r.Context()), client.ScopeAdmin) {
+		owners = append(owners, SystemOwner)
+	}
+	return owners
+}
+
 func (h *handler) handleScan(w http.ResponseWriter, r *http.Request) {
-	userID := client.UserIDFromRequest(r)
+	userID := client.GetUserID(r.Context())
 
 	r.ParseMultipartForm(100 << 20)
 	file, header, err := r.FormFile("file")
@@ -124,8 +134,9 @@ func (h *handler) doScanFolder(ctx context.Context, userID, path string, exclude
 	}, nil
 }
 
+// handleScanFolder walks a host directory; only core's nightly job may ask.
 func (h *handler) handleScanFolder(w http.ResponseWriter, r *http.Request) {
-	userID := client.UserIDFromRequest(r)
+	userID := SystemOwner
 
 	var req struct {
 		Path    string   `json:"path"`
@@ -157,11 +168,10 @@ func (h *handler) handleScanFolder(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *handler) handleHistory(w http.ResponseWriter, r *http.Request) {
-	userID := client.UserIDFromRequest(r)
 	limit := intParam(r, "limit", 50)
 	offset := intParam(r, "offset", 0)
 
-	results, err := h.app.Store.ListHistory(r.Context(), userID, limit, offset)
+	results, err := h.app.Store.ListHistory(r.Context(), scanOwners(r), limit, offset)
 	if err != nil {
 		writeErr(w, r, http.StatusInternalServerError, "%v", err)
 		return
@@ -173,7 +183,6 @@ func (h *handler) handleHistory(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *handler) handleStatus(w http.ResponseWriter, r *http.Request) {
-	userID := client.UserIDFromRequest(r)
 	status := ClamdStatus{
 		SocketPath: h.app.socketPath,
 		Installed:  IsClamAVInstalled(),
@@ -188,7 +197,11 @@ func (h *handler) handleStatus(w http.ResponseWriter, r *http.Request) {
 		status.Version = ver
 	}
 
-	total, threats, clean := h.app.Store.GetStats(r.Context(), userID)
+	total, threats, clean, err := h.app.Store.GetStats(r.Context(), scanOwners(r))
+	if err != nil {
+		writeErr(w, r, http.StatusInternalServerError, "read scan stats: %v", err)
+		return
+	}
 	status.TotalScans = total
 	status.ThreatsFound = threats
 	status.CleanFiles = clean

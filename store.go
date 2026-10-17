@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"encoding/hex"
 	"fmt"
+	"strings"
 	"time"
 )
 
@@ -42,10 +43,23 @@ func (s *Store) RecordScan(ctx context.Context, userID, filename string, fileSiz
 	}, nil
 }
 
-func (s *Store) ListHistory(ctx context.Context, userID string, limit, offset int) ([]*ScanResult, error) {
+// SystemOwner owns the scans core's nightly folder scan records.
+const SystemOwner = "system"
+
+func ownerFilter(owners []string) (string, []interface{}) {
+	args := make([]interface{}, len(owners))
+	for i, o := range owners {
+		args[i] = o
+	}
+	return "user_id IN (?" + strings.Repeat(",?", len(owners)-1) + ")", args
+}
+
+// ListHistory returns the scans recorded for any of owners, newest first.
+func (s *Store) ListHistory(ctx context.Context, owners []string, limit, offset int) ([]*ScanResult, error) {
+	where, args := ownerFilter(owners)
 	rows, err := s.db.QueryContext(ctx,
-		"SELECT id, user_id, filename, file_size, verdict, threat_name, storage_path, duration_ms, scanned_at FROM scan_results WHERE user_id = ? ORDER BY scanned_at DESC LIMIT ? OFFSET ?",
-		userID, limit, offset)
+		"SELECT id, user_id, filename, file_size, verdict, threat_name, storage_path, duration_ms, scanned_at FROM scan_results WHERE "+where+" ORDER BY scanned_at DESC LIMIT ? OFFSET ?",
+		append(args, limit, offset)...)
 	if err != nil {
 		return nil, err
 	}
@@ -60,14 +74,16 @@ func (s *Store) ListHistory(ctx context.Context, userID string, limit, offset in
 		r.ScannedAt = time.Unix(scannedAt, 0)
 		out = append(out, &r)
 	}
-	return out, nil
+	return out, rows.Err()
 }
 
-func (s *Store) GetStats(ctx context.Context, userID string) (total, threats, clean int) {
-	s.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM scan_results WHERE user_id = ?", userID).Scan(&total)
-	s.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM scan_results WHERE user_id = ? AND verdict = 'infected'", userID).Scan(&threats)
-	clean = total - threats
-	return
+// GetStats counts the scans recorded for any of owners.
+func (s *Store) GetStats(ctx context.Context, owners []string) (total, threats, clean int, err error) {
+	where, args := ownerFilter(owners)
+	if err = s.db.QueryRowContext(ctx, "SELECT COUNT(*), COUNT(*) FILTER (WHERE verdict = 'infected') FROM scan_results WHERE "+where, args...).Scan(&total, &threats); err != nil {
+		return 0, 0, 0, err
+	}
+	return total, threats, total - threats, nil
 }
 
 func newID() string {

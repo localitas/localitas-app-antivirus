@@ -33,7 +33,7 @@ func main() {
 	app := &cli.Command{
 		Name:    "antivirus-server",
 		Usage:   "Antivirus app server",
-		Version: version,
+		Version: version + " (" + commit + ")",
 		Commands: []*cli.Command{
 			serveCommand(),
 			migrateCommand(),

@@ -41,7 +41,7 @@ func InstallClamAV() error {
 	}
 
 	if _, err := exec.LookPath("brew"); err != nil {
-		return fmt.Errorf("Homebrew not found, please install clamav manually")
+		return fmt.Errorf("homebrew not found, please install clamav manually")
 	}
 
 	logger.Info("installing ClamAV via Homebrew")

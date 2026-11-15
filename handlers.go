@@ -85,7 +85,21 @@ func (h *handler) handleScan(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, r, http.StatusOK, result)
 }
 
-func (h *handler) doScanFolder(ctx context.Context, userID, path string, exclude []string) (map[string]interface{}, error) {
+// ScanFolderRequest is the body of POST /api/scan-folder: the host
+// directory to walk and the names (globs) to skip.
+type ScanFolderRequest struct {
+	Path    string   `json:"path"`
+	Exclude []string `json:"exclude,omitempty"`
+}
+
+// ScanFolderResult is what a folder scan found: how many files it scanned,
+// and each scan it recorded.
+type ScanFolderResult struct {
+	Scanned int           `json:"scanned"`
+	Results []*ScanResult `json:"results"`
+}
+
+func (h *handler) doScanFolder(ctx context.Context, userID, path string, exclude []string) (ScanFolderResult, error) {
 	var results []*ScanResult
 	scanned := 0
 	filepath.Walk(path, func(fpath string, info os.FileInfo, err error) error {
@@ -128,20 +142,14 @@ func (h *handler) doScanFolder(ctx context.Context, userID, path string, exclude
 		results = make([]*ScanResult, 0)
 	}
 
-	return map[string]interface{}{
-		"scanned": scanned,
-		"results": results,
-	}, nil
+	return ScanFolderResult{Scanned: scanned, Results: results}, nil
 }
 
 // handleScanFolder walks a host directory; only core's nightly job may ask.
 func (h *handler) handleScanFolder(w http.ResponseWriter, r *http.Request) {
 	userID := SystemOwner
 
-	var req struct {
-		Path    string   `json:"path"`
-		Exclude []string `json:"exclude,omitempty"`
-	}
+	var req ScanFolderRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeErr(w, r, http.StatusBadRequest, "invalid body")
 		return
@@ -151,11 +159,11 @@ func (h *handler) handleScanFolder(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	work := func(ctx context.Context) (map[string]interface{}, error) {
+	work := func(ctx context.Context) (ScanFolderResult, error) {
 		return h.doScanFolder(ctx, userID, req.Path, req.Exclude)
 	}
 
-	if h.app.client.RunAsync(w, r, work) {
+	if client.RunAsync(h.app.client, w, r, work) {
 		return
 	}
 

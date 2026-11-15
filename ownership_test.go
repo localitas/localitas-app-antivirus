@@ -136,7 +136,23 @@ func TestScanFolder_OnlyCore(t *testing.T) {
 	req.Header.Set("Authorization", "Bearer "+testAPIToken)
 	rec := httptest.NewRecorder()
 	mux.ServeHTTP(rec, req)
-	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"scanned":0`) {
+	if rec.Code != http.StatusOK {
 		t.Fatalf("core's scan-folder: %d %s", rec.Code, rec.Body)
+	}
+	var result ScanFolderResult
+	strictDecode(t, rec.Body.Bytes(), &result)
+	if result.Scanned != 0 || result.Results == nil || len(result.Results) != 0 {
+		t.Fatalf("an empty folder's scan: %+v (results must be an empty list, not null)", result)
+	}
+}
+
+// The page sets its base to the path core serves the app under.
+func TestIndex_BaseIsTheAppsPath(t *testing.T) {
+	app, mux := newTestApp(t)
+	app.BasePath = "/apps/ext/antivirus/"
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, httptest.NewRequest("GET", "/", nil))
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `<base href="/apps/ext/antivirus/">`) {
+		t.Fatalf("index: %d, base not the app's path", rec.Code)
 	}
 }

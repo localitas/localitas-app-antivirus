@@ -118,9 +118,11 @@ func (a *App) handleIndex(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
-	tmpl.ExecuteTemplate(w, "index.html", map[string]interface{}{
-		"BasePath": a.BasePath,
-	})
+	tmpl.ExecuteTemplate(w, "index.html", indexPage{BasePath: a.BasePath})
+}
+
+type indexPage struct {
+	BasePath string
 }
 
 func (a *App) RegisterRoutes(mux *http.ServeMux) {

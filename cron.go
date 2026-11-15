@@ -1,12 +1,15 @@
 package antivirus
 
 import (
-	"encoding/json"
 	"net/http"
 	"os"
 	"path/filepath"
+
+	client "github.com/localitas/localitas-go"
 )
 
+// HandleCron serves the nightly scan of the Localitas data directory, minus
+// what churns or holds no user files.
 func HandleCron(w http.ResponseWriter, r *http.Request) {
 	dataDir := os.Getenv("LOCALITAS_DATA_DIR")
 	if dataDir == "" {
@@ -14,34 +17,18 @@ func HandleCron(w http.ResponseWriter, r *http.Request) {
 		dataDir = filepath.Join(homeDir, ".localitas")
 	}
 
-	spec := map[string]interface{}{
-		"jobs": []map[string]interface{}{
-			{
-				"id":                 "cron:antivirus:scan-folder",
-				"path":               "/api/scan-folder",
-				"method":             "POST",
-				"schedule":           "0 2 * * *",
-				"description":        "Scans all files in localitas data directory for threats",
-				"execution_strategy": "all_nodes",
-				"timeout":            "3600s",
-				"body": map[string]interface{}{
-					"path": dataDir,
-					"exclude": []string{
-						"raft",
-						"bleve-indices",
-						"logs",
-						"*.sqlitedb",
-						"*.sqlitedb-wal",
-						"*.sqlitedb-shm",
-						"*.log",
-					},
-				},
-				"retry": map[string]interface{}{
-					"max_attempts": 1,
-				},
-			},
-		},
-	}
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(spec)
+	client.CronSpec{Jobs: []client.CronJob{{
+		ID:                "cron:antivirus:scan-folder",
+		Path:              "/api/scan-folder",
+		Method:            "POST",
+		Schedule:          "0 2 * * *",
+		Description:       "Scans all files in localitas data directory for threats",
+		ExecutionStrategy: "all_nodes",
+		Timeout:           "3600s",
+		Body: client.JSONBody(ScanFolderRequest{
+			Path:    dataDir,
+			Exclude: []string{"raft", "bleve-indices", "logs", "*.sqlitedb", "*.sqlitedb-wal", "*.sqlitedb-shm", "*.log"},
+		}),
+		Retry: &client.CronRetry{MaxAttempts: 1},
+	}}}.ServeHTTP(w, r)
 }

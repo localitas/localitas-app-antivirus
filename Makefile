@@ -76,9 +76,15 @@ build-docker: build-linux
 	docker build -t antivirus:latest .
 
 start-docker: build-docker stop-docker
-	@docker run -d -p $(PORT):8000 --name antivirus \
+	@docker run -d -p $(PORT):8000 --name $(APP_NAME) \
 		--log-opt max-size=10m --log-opt max-file=7 \
-		antivirus:latest
+		--label localitas.app=true \
+		-e LOCALITAS_API_TOKEN \
+		-e LOCALITAS_DATA_DIR=$(HOME)/.localitas \
+		-v $(HOME)/.localitas/clamav/clamd.sock:/var/run/clamav/clamd.sock \
+		--user 0:0 \
+		--add-host host.docker.internal:host-gateway \
+		$(APP_NAME):latest serve --listen :8000 --base-path $(BASE_PATH) --clamd-socket /var/run/clamav/clamd.sock
 	@echo "Waiting for antivirus to be ready..."
 	@for i in 1 2 3 4 5 6 7 8 9 10; do \
 		curl -sf http://localhost:$(PORT)/health.json > /dev/null 2>&1 && break; \

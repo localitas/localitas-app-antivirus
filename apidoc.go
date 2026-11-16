@@ -37,12 +37,11 @@ type APIDoc struct {
 var AntivirusAPIDoc = APIDoc{
 	AppName:     "Antivirus",
 	Version:     "1.0.0",
-	Description: "ClamAV-powered file scanner. Scans uploaded files and managed filesystem for threats. Clean files are stored in managed filesystem downloads folder.",
-	Keywords:    []string{"antivirus", "scan", "malware", "virus", "threat", "security", "clamav", "quarantine", "infected"},
+	Description: "ClamAV-powered file scanner. Scans uploaded files, and core's nightly job scans the Localitas data directory.",
+	Keywords:    []string{"antivirus", "scan", "malware", "virus", "threat", "security", "clamav", "infected"},
 	Endpoints: []APIEndpoint{
-		{Method: "POST", Path: "/api/scan", Summary: "Upload and scan a file", RequestBody: &APIBody{ContentType: "multipart/form-data", Example: `file: <binary>`}, Response: &APIBody{ContentType: "application/json", Example: `{"id":"abc","filename":"doc.pdf","verdict":"clean","storage_path":"downloads/user/doc.pdf","duration_ms":120}`}},
-		{Method: "POST", Path: "/api/scan-managed", Summary: "Scan an existing managed filesystem file", RequestBody: &APIBody{ContentType: "application/json", Example: `{"path":"downloads/user/report.pdf"}`}, Response: &APIBody{ContentType: "application/json", Example: `{"id":"abc","filename":"report.pdf","verdict":"clean","duration_ms":85}`}},
-		{Method: "POST", Path: "/api/scan-managed-all", Summary: "Scan all files in managed filesystem", Response: &APIBody{ContentType: "application/json", Example: `{"scanned":15,"results":[...]}`}},
+		{Method: "POST", Path: "/api/scan-file", Summary: "Upload and scan a file (needs write scope)", RequestBody: &APIBody{ContentType: "multipart/form-data", Example: `file: <binary>`}, Response: &APIBody{ContentType: "application/json", Example: `{"id":"abc","user_id":"u1","filename":"doc.pdf","file_size":2048,"verdict":"clean","duration_ms":120,"scanned_at":"2026-05-02T10:00:00Z"}`}},
+		{Method: "POST", Path: "/api/scan-folder", Summary: "Scan a host directory (core's nightly job only)", RequestBody: &APIBody{ContentType: "application/json", Example: `{"path":"/Users/me/.localitas","exclude":["raft","*.log"]}`}, Response: &APIBody{ContentType: "application/json", Example: `{"scanned":15,"results":[{"id":"abc","filename":"report.pdf","verdict":"clean"}]}`}},
 		{Method: "GET", Path: "/api/history", Summary: "Get scan history", QueryParams: []APIParam{{Name: "limit", Type: "integer", Required: false, Description: "Max results (default 50)"}, {Name: "offset", Type: "integer", Required: false, Description: "Pagination offset"}}, Response: &APIBody{ContentType: "application/json", Example: `[{"id":"abc","filename":"doc.pdf","verdict":"clean","scanned_at":"2026-05-02T10:00:00Z"}]`}},
 		{Method: "GET", Path: "/api/status", Summary: "Get ClamAV status and scan statistics", Response: &APIBody{ContentType: "application/json", Example: `{"running":true,"version":"ClamAV 1.4.0","total_scans":42,"threats_found":1,"clean_files":41}`}},
 	},

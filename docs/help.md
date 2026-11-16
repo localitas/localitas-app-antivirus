@@ -58,14 +58,14 @@ bin/antivirus-server --version
 ### Build from source
 
 ```bash
-# Native binary
-go build -o bin/antivirus-server ./cmd/antivirus-server
+# Native binary (bin/antivirus-server)
+make build
 
-# Native binary plus the Linux amd64 binary the Docker image is built from (antivirus-server-linux-amd64)
+# Linux amd64 binary the Docker image is built from (antivirus-server-linux-amd64)
 make build-linux
 ```
 
-`make lint` runs gofmt and go vet; `make test` runs them and then the tests. `make build` runs only the lint step.
+Both run `make lint` (gofmt and go vet) first; `make test` runs the lint step and then the tests.
 
 ### Run natively
 

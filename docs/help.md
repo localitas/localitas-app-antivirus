@@ -5,29 +5,27 @@ description: ClamAV-powered file scanning for Localitas
 
 # Antivirus
 
-Scan uploaded and managed files for malware using ClamAV.
+Scan files for malware using ClamAV.
 
 ## Prerequisites
 
-The app installs ClamAV automatically on first launch. It configures clamd and freshclam for virus definition updates. The clamd daemon must be running for scans to work.
+On macOS the app installs ClamAV with Homebrew on first launch if it is missing. It configures clamd and freshclam for virus definition updates. The clamd daemon must be running for scans to work.
 
 ## Scanning Uploaded Files
 
-Upload a file via multipart form to have it scanned immediately. Clean files are moved to managed storage under `downloads/{user_id}/{filename}`. Infected files are rejected and not stored.
+Upload a file via multipart form to have it scanned immediately. The scan is recorded in your history with its verdict. The uploaded file itself is not kept, clean or infected.
 
-**POST /api/scan** - Upload and scan a file (multipart, field name: `file`)
+**POST /api/scan-file** - Upload and scan a file (multipart, field name: `file`; needs write scope)
 
-## Scanning Managed Files
+## Scanning a Folder
 
-Scan a file already stored in the filesystem app by providing its path.
+Scan every file under a directory on the host, skipping names that match the exclude globs. Only core's system token may call this route; it is what the nightly scan uses.
 
-**POST /api/scan-managed** - Scan a file by path (`{"path": "..."}`)
-
-**POST /api/scan-managed-all** - Scan all files in managed storage at once
+**POST /api/scan-folder** - Scan a host directory (`{"path": "...", "exclude": ["*.log"]}`)
 
 ## Scan History
 
-View past scan results including verdict, threat name, file size, and scan duration.
+View past scan results including verdict, threat name, file size, and scan duration. You see your own scans; admins also see the nightly system scans.
 
 **GET /api/history** - List scan history (supports `limit` and `offset` query params)
 
@@ -40,64 +38,77 @@ Check ClamAV installation status, daemon health, virus definition version, and a
 ## Verdicts
 
 Each scan produces one of two verdicts:
-- **clean** - No threats detected, file is safe
-- **infected** - Threat detected, file is quarantined
+- **clean** - No threats detected
+- **infected** - Threat detected; the threat name is recorded
 
 ## Automation
 
-The antivirus app supports automated scanning through the Localitas automation system. Configure scan schedules to periodically check managed files for new threats.
+The app serves a nightly job in its `cron.json`, which core's automation runs: `cron:antivirus:scan-folder` calls `POST /api/scan-folder` at 02:00 on every node and scans the Localitas data directory (`LOCALITAS_DATA_DIR`, default `~/.localitas`), skipping `raft`, `bleve-indices`, `logs`, SQLite database files and log files.
 
 ## Build & Deploy
+
+Run these in the app's repository, `~/localitas-app-antivirus`.
 
 ### Version
 
 ```bash
-./antivirus-server --version
+bin/antivirus-server --version
 ```
 
 ### Build from source
 
 ```bash
-# Development (native)
-cd apps/antivirus && go build -o bin/antivirus-server ./cmd/antivirus-server
+# Native binary
+go build -o bin/antivirus-server ./cmd/antivirus-server
 
-# Cross-compile for Linux
-GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -ldflags "-s -w" -trimpath -o bin/antivirus-server-linux-amd64 ./cmd/antivirus-server
+# Native binary plus the Linux amd64 binary the Docker image is built from (antivirus-server-linux-amd64)
+make build-linux
 ```
+
+`make lint` runs gofmt and go vet; `make test` runs them and then the tests. `make build` runs only the lint step.
+
+### Run natively
+
+```bash
+make start   # writes the launchd service com.localitas.app.antivirus for bin/antivirus-server and loads it on port 9211
+make stop
+make logs    # follows ~/.localitas/logs/antivirus/stdout.log
+```
+
+The app announces itself to core when it starts, and core serves it at `/apps/ext/antivirus/`.
 
 ### Docker
 
-Build a Docker image directly from the binary:
-
 ```bash
-# Default base image (debian:12-slim)
-./antivirus-server docker-build
-
-# Custom base image
-./antivirus-server docker-build --base ubuntu:24.04
-
-# Custom Dockerfile
-./antivirus-server docker-build --dockerfile ./my.Dockerfile
-
-# Tag and push to registry
-./antivirus-server docker-build --tag ghcr.io/localitas/antivirus:latest --push
+make build-docker   # builds the Linux binary and the antivirus:latest image
+make start-docker   # runs container "antivirus" on port 9211, labelled localitas.app=true, with the host's clamd socket mounted
+make stop-docker
+make logs-docker
 ```
 
-The `docker-build` command requires a Linux amd64 binary in the same directory. Run `make deploy-build` from the project root first.
+Core registers containers labelled `localitas.app=true` once Docker reports them healthy.
+
+### Publish
+
+```bash
+# Run the tests, build the image, push ghcr.io/localitas/localitas-app-antivirus:latest and :<VERSION>
+make docker-push
+
+# Build dist/antivirus-server-darwin-arm64 and dist/antivirus-server-darwin-amd64
+# and create GitHub release vX.Y.Z on this repository with them
+make release VERSION=vX.Y.Z
+```
+
+`VERSION` defaults to `git describe --tags --always --dirty`.
 
 ### Download
 
-Pre-built binaries are available on the [GitHub releases page](https://github.com/localitas/localitas/releases).
+Pre-built macOS binaries are on the [releases page](https://github.com/localitas/localitas-app-antivirus/releases):
+- `antivirus-server-darwin-arm64` (Apple Silicon)
+- `antivirus-server-darwin-amd64` (Intel)
 
-Each release includes three builds per app:
-- `antivirus-server-darwin-arm64` (macOS Apple Silicon)
-- `antivirus-server-linux-amd64` (Linux x86_64)
-- `antivirus-server-linux-arm64` (Linux ARM64)
+Every push to `main` publishes a release: `.github/workflows/release.yml` runs the tests and releases both binaries as `v0.1.<commit count>.<UTC timestamp>`. `make release` publishes one by hand.
 
 Download with the GitHub CLI:
 
-    gh release download --repo localitas/localitas --pattern 'antivirus-server-*'
-
-### Release
-
-All app binaries are published to GitHub releases as part of `make deploy-upload-image`.
+    gh release download --repo localitas/localitas-app-antivirus --pattern 'antivirus-server-*'

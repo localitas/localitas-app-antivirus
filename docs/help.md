@@ -61,7 +61,8 @@ bin/antivirus-server --version
 # Native binary (bin/antivirus-server)
 make build
 
-# Linux amd64 binary the Docker image is built from (antivirus-server-linux-amd64)
+# Linux binary the Docker image is built from, for the Docker daemon's
+# architecture (antivirus-server-linux-arm64 on Apple silicon); LINUX_ARCH=amd64 overrides
 make build-linux
 ```
 

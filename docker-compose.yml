@@ -5,7 +5,6 @@ services:
     ports:
       - "${APP_PORT:-9211}:8000"
     environment:
-      - CORE_URL=http://host.docker.internal:8090
       - LOCALITAS_API_TOKEN=${LOCALITAS_API_TOKEN:-}
       - LOCALITAS_DATA_DIR=${HOME}/.localitas
     volumes:
